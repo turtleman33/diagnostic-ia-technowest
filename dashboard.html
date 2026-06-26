@@ -130,6 +130,11 @@ td .svc{color:var(--gris);font-size:12px;}
       </div>
 
       <div class="card full" style="margin-top:16px;">
+        <h3>Quiz de départ — taux de bonnes réponses</h3>
+        <div id="quiz"></div>
+      </div>
+
+      <div class="card full" style="margin-top:16px;">
         <h3>Questionnaires déployés (par entreprise)</h3>
         <div style="overflow-x:auto;"><table id="campagnes"></table></div>
       </div>
@@ -144,9 +149,17 @@ const PAL=["#122750","#BC2067","#1A80C1","#66BD50","#F1C93B","#E8833A","#7F77DD"
 const $=id=>document.getElementById(id);
 let sb=null, CHARTS=[], ALL_ROWS=[], ROWS=[], CAMPAGNES=[];
 
-const NIVEAU_ORDER=["Je n'ai jamais essayé","Curieux débutant","Occasionnel","Régulier","Avancé"];
+const NIVEAU_ORDER=["Je n'ai jamais essayé","Je suis curieux/se mais débutant/e","Je l'utilise occasionnellement","Je l'utilise régulièrement","Je me considère comme avancé/e"];
 const FREQ_ORDER=["Jamais","Quelques fois par mois","1 à 2 fois par semaine","Presque tous les jours","Plusieurs fois par jour"];
 const GAIN_ORDER=["Aucun / je n'en tire pas encore de gain","Moins d'1 heure","1 à 3 heures","3 à 5 heures","Plus de 5 heures","Je ne sais pas l'estimer"];
+
+// Mini-quiz de positionnement — clé de correction (libellés IDENTIQUES au socle).
+// Réponses lues depuis reponse_complete (jsonb).
+const QCM=[
+  {id:"qcm_prompt", label:"Notion de « prompt »", correct:"Une consigne ou une demande formulée à un outil d'IA"},
+  {id:"qcm_hallucination", label:"Notion d'« hallucination »", correct:"Une réponse inventée ou erronée, produite avec assurance par l'outil"},
+  {id:"qcm_confidentialite", label:"Risque de confidentialité", correct:"Un risque de confidentialité ou de réutilisation des données"}
+];
 
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -330,6 +343,24 @@ function verbatims(){
   $('verbatims').innerHTML=html;
 }
 
+function quizCard(){
+  const rows=ROWS.filter(r=>r.reponse_complete && typeof r.reponse_complete==='object');
+  if(!rows.length){ $('quiz').innerHTML='<span class="empty">Pas encore de réponses au mini-quiz pour ce filtre.</span>'; return; }
+  let totalOk=0, totalAns=0, body='';
+  QCM.forEach(q=>{
+    const ans=rows.map(r=>r.reponse_complete[q.id]).filter(v=>v!==undefined&&v!==null&&v!=='');
+    const ok=ans.filter(v=>v===q.correct).length;
+    totalOk+=ok; totalAns+=ans.length;
+    const pct=ans.length?Math.round(ok/ans.length*100):0;
+    body+='<div style="margin-bottom:13px;">'+
+      '<div style="display:flex;justify-content:space-between;font-size:13.5px;"><span>'+esc(q.label)+'</span>'+
+      '<span style="font-weight:700;color:var(--marine);">'+pct+'% <span style="color:var(--gris);font-weight:400;">('+ok+'/'+ans.length+')</span></span></div>'+
+      '<div style="height:9px;background:#eef2f8;border-radius:6px;margin-top:4px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:var(--vert);"></div></div></div>';
+  });
+  const overall=totalAns?Math.round(totalOk/totalAns*100):0;
+  $('quiz').innerHTML='<p style="margin:0 0 14px;color:var(--gris);font-size:13px;">Vérification objective des acquis de départ (auto-administrée, en complément de l\'auto-positionnement). Score global de bonnes réponses : <b style="color:var(--marine);">'+overall+'%</b>.</p>'+body;
+}
+
 function campagnesTable(){
   let html='<tr><th>Entreprise</th><th>Questionnaire (slug)</th><th>Secteur</th><th>Effectif</th><th>Réponses</th><th>Statut</th><th>Lien</th></tr>';
   if(!CAMPAGNES.length){ $('campagnes').innerHTML=html+'<tr><td colspan="7" class="empty">Aucune campagne enregistrée. Les questionnaires générés par le plugin apparaîtront ici.</td></tr>'; return; }
@@ -363,15 +394,18 @@ function render(){
   addChart('Motivation (1 à 5)','bar',tally('motivation',['1','2','3','4','5']),1);
   addChart('Données sensibles déjà saisies','doughnut',tally('confidentialite'),null);
   verbatims();
+  quizCard();
   campagnesTable();
 }
 
 function exportCSV(){
   if(!ROWS.length){ alert('Aucune réponse à exporter pour ce filtre.'); return; }
-  const cols=['created_at','entreprise','campagne_id','prenom','service','fonction','niveau','frequence','outils','contexte','taches','tache_reve','gain_temps','notions','confidentialite','freins','objectif','format','motivation','libre'];
+  const cols=['created_at','entreprise','campagne_id','prenom','service','fonction','niveau','frequence','outils','contexte','taches','tache_reve','gain_temps','notions','confidentialite','qcm_prompt','qcm_hallucination','qcm_confidentialite','freins','objectif','format','motivation','libre'];
   const head=cols.join(';');
   const e=v=>{ if(v===null||v===undefined) return ''; let s=String(v).replace(/"/g,'""'); return /[";\n]/.test(s)?('"'+s+'"'):s; };
-  const lines=ROWS.map(r=>cols.map(c=>e(r[c])).join(';'));
+  // les colonnes qcm_* ne sont pas en base : on les lit dans reponse_complete (jsonb)
+  const val=(r,c)=> c.indexOf('qcm_')===0 ? (r.reponse_complete?r.reponse_complete[c]:'') : r[c];
+  const lines=ROWS.map(r=>cols.map(c=>e(val(r,c))).join(';'));
   const csv='﻿'+head+'\n'+lines.join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob); const a=document.createElement('a');
