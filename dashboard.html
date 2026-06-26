@@ -139,7 +139,7 @@ td .svc{color:var(--gris);font-size:12px;}
         <div style="overflow-x:auto;"><table id="campagnes"></table></div>
       </div>
 
-      <div class="foot-note">Diagnostic IA — EENOV (SAS), organisme de formation certifié Qualiopi · animé sous la marque izired.</div>
+      <div class="foot-note">Diagnostic IA — EENOV (SAS), organisme de formation certifié Qualiopi · animé sous la marque izired. · dashboard v1.1.1</div>
     </div>
   </div>
 </div>
@@ -189,8 +189,20 @@ function sendMagicLink(){
   sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: window.location.href.split('#')[0] } })
     .then(({error})=>{
       $('loginBtn').disabled=false;
-      if(error){ $('login_state').innerHTML='<div class="err">'+esc(error.message)+'</div>'; return; }
+      if(error){
+        console.error('signInWithOtp error:', error);
+        var msg = (error && (error.message || error.error_description || error.msg || error.code)) ||
+                  (error && error.status ? ('HTTP '+error.status) : '') ||
+                  "Échec de l'envoi du lien. Vérifiez la config SMTP (Brevo) + les logs Auth de Supabase.";
+        $('login_state').innerHTML='<div class="err">'+esc(msg)+'</div>';
+        return;
+      }
       $('login_state').innerHTML='<div class="ok">✅ Lien envoyé à <b>'+esc(email)+'</b>.<br>Ouvrez votre boîte mail et cliquez sur le lien pour accéder au tableau de bord.</div>';
+    })
+    .catch(e=>{
+      $('loginBtn').disabled=false;
+      console.error(e);
+      $('login_state').innerHTML='<div class="err">'+esc((e && e.message) || String(e))+'</div>';
     });
 }
 
